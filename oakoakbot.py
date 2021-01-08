@@ -12,9 +12,9 @@ import asyncio
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types
 
-BASE_IMAGE = "data/images/misc/whosthatpkmn.jpg"
+BASE_IMAGE = "data/images/misc/background_image.jpg"
 POKEMON_LOGO = "data/images/misc/pokemon_logo.png"
-QUESTION_MARK = "data/images/misc/questionmark.png"
+QUESTION_MARK = "data/images/misc/question_mark.png"
 
 # TODO: Pokemon chance is related to pokemon base stats + is_legendary
 WILD_POKEMON_CHANCE = 0
