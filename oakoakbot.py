@@ -3,7 +3,6 @@ import glob
 import random
 import time
 import numpy as np
-import sqlite3
 import math
 import os
 import io
@@ -11,6 +10,8 @@ import io
 import asyncio
 from PIL import Image, ImageDraw, ImageFont
 from aiogram import Bot, Dispatcher, types
+
+from oak_db import OakDB
 
 BASE_IMAGE = "data/images/misc/background_image.jpg"
 POKEMON_LOGO = "data/images/misc/pokemon_logo.png"
@@ -37,6 +38,7 @@ images = os.listdir("data/images/pokemon")
 with open("data/pokemon.csv") as f:
     pokemon_data = list(csv.DictReader(f))
 
+oak_db = OakDB()
 
 # con = sqlite3.Connection("newdb.sqlite")
 # cur = con.cursor()
@@ -196,12 +198,40 @@ async def start_handler(event: types.Message):
     return
     await event.answer(
         f"Hello, {event.from_user.get_mention(as_html=True)} 👋!\n\n"
-        f"My name is Samuel Oak. I can be added to any group, and if I'm given the "
-        f"right permissions, I'll notify you whenever a wild pokemon appears.\n\n"
-        f"You can then catch wild pokemon by using the /catch command followed "
-        f"by the name of the pokemon you want to catch.\n\n"
-        f"You can check your team at any time using the /showteam command.",
+        f"I'm Professor Oak. I can be added to any group, and if I'm given the "
+        f"right permissions, I'll notify you whenever a wild Pokemon appears.\n\n"
+        f"You can then catch wild Pokemon by using the /catch command followed "
+        f"by the name of the Pokemon you want to catch.\n\n"
+        f"You can check your team at any time using the /showteam command. \n\n",
         parse_mode=types.ParseMode.HTML,
+    )
+
+
+@dispatcher.message_handler(
+    chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP],
+    commands=["help"],
+)
+async def help_handler(event: types.Message):
+    await event.answer(
+        f"Pokemon will appear randomly\. Catch them to add them to your team\!"
+        f"\n\n"
+        f"/catch <pokemon name\> \- Catch a wild Pokemon\. Only Pokemon notified "
+        f"by Professor Oak can be caught\!\."
+        f"\n"
+        f"/setgens <gens\> \- Specify which generation of Pokemon will appear on "
+        f"this group\. Generations must be comma separated numbers on the range "
+        f"\[1,8\]\."
+        f"\n"
+        f"/setrate <rate\> \- Specify the rate at which wild Pokemon will appear on "
+        f"this group\. <rate\> must be a float between 0 and 1\. Each message will "
+        f"have a chance of <rate\> to spawn a wild Pokemon\."
+        f"\n"
+        f"/showteam \- See the Pokemon you've captured on this group\."
+        f"\n\n\n"
+        f"Bugs and suggestions can be reported on oakoakbot's "
+        f"[GitHub page](https://github.com/tacochan/oakoakbot)\.",
+        parse_mode=types.ParseMode.MARKDOWN_V2,
+        disable_web_page_preview=True,
     )
 
 
@@ -209,7 +239,8 @@ async def start_handler(event: types.Message):
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["catch"]
 )
 async def capture_handler(event: types.Message):
-    pokemon_to_capture = event.text.replace("/catch", "").strip().lower()
+    pokemon_to_capture = event.text.replace("/catch", "").replace("@oakoakbot", "")
+    pokemon_to_capture = pokemon_to_capture.strip().lower()
     if pokemon_to_capture in wild_pokemon:
         caught_pokemon = wild_pokemon.pop(pokemon_to_capture)
         image_path = glob.glob(
@@ -231,6 +262,44 @@ async def capture_handler(event: types.Message):
     else:
         await event.answer(
             f"You must tell me which pokemon you want to capture",
+        )
+
+
+@dispatcher.message_handler(
+    chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP],
+    commands=["setrate"],
+)
+async def set_rate_handler(event: types.Message):
+    new_rate = event.text.replace("/setrate", "").replace("@oakoakbot", "")
+    new_rate = new_rate.strip().lower()
+
+    if not new_rate:
+        await event.answer(
+            f"You must specify a <rate\> parameter\. Example: `/setrate 0\.01`",
+            parse_mode=types.ParseMode.MARKDOWN_V2,
+            disable_web_page_preview=True,
+        )
+        return
+
+    try:
+        new_rate = float(new_rate)
+        if new_rate < 0 or new_rate > 1:
+            raise ValueError
+        oak_db.update_group_pokemon_rate(event.chat.id, new_rate)
+        print(f"Rate for group {event.chat.id} set to {new_rate}")
+
+        await event.answer(
+            f"Pokemon rate was successfully updated",
+            parse_mode=types.ParseMode.MARKDOWN_V2,
+            disable_web_page_preview=True,
+        )
+
+    except ValueError:
+        await event.answer(
+            f"<rate\> parameter must be a number between 0 and 1\. "
+            f"Example: `/setrate 0\.01`",
+            parse_mode=types.ParseMode.MARKDOWN_V2,
+            disable_web_page_preview=True,
         )
 
 
