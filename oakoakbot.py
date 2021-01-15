@@ -1,26 +1,27 @@
 import asyncio
 import csv
-import glob
 import os
 import random
 import time
+import string
 
 from aiogram import Bot, Dispatcher, types
+from aiogram.dispatcher.middlewares import BaseMiddleware
 
-from oakoakbot.db import OakDB
+from oakoakbot.db import Pokemon, CaughtPokemon, GroupsConfiguration, Teams
 from oakoakbot.logger import get_logger
 from oakoakbot.images import create_pokemon_image
+
 
 logger = get_logger()
 
 t0 = time.time()
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dispatcher = Dispatcher(bot=bot)
-oak_db = OakDB()
 
-WILD_POKEMON_CHANCE = 0
+POKEMON_TIMEOUT = 16
 
-wild_pokemon = {}
+wild_encounters = {}
 images = os.listdir("data/images/pokemon")
 
 with open("data/pokemon.csv") as f:
@@ -28,6 +29,31 @@ with open("data/pokemon.csv") as f:
 
 
 logger.info(f"Initial setup finished in {time.time() - t0}s.")
+
+trans_table = str.maketrans("", "", string.punctuation + " ")
+
+
+def compare_pokemon(pokemon1: str, pokemon2: str):
+    """Compare if two strings containing pokemon names are equal enough for the pokemon
+    to be considered caught
+    """
+    pokemon1 = pokemon1.lower().translate(trans_table)
+    pokemon2 = pokemon2.lower().translate(trans_table)
+    return pokemon1 == pokemon2
+
+
+class GroupCheck(BaseMiddleware):
+    def __init__(self) -> None:
+        self.groups = GroupsConfiguration.get_groups()
+        super(GroupCheck, self).__init__()
+
+    async def on_process_message(self, event, _):
+        """Manage the current list of registered groups. Called on every message before
+        dispatching them to the handlers.
+        """
+        if event.chat.id not in self.groups:
+            GroupsConfiguration.add_group(event.chat.id)
+            self.groups = GroupsConfiguration.get_groups()
 
 
 @dispatcher.message_handler(
@@ -77,42 +103,11 @@ async def help_handler(event: types.Message):
 
 
 @dispatcher.message_handler(
-    chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["catch"]
-)
-async def capture_handler(event: types.Message):
-    pokemon_to_capture = event.text.replace("/catch", "").replace("@oakoakbot", "")
-    pokemon_to_capture = pokemon_to_capture.strip().lower()
-    if pokemon_to_capture in wild_pokemon:
-        caught_pokemon = wild_pokemon.pop(pokemon_to_capture)
-        image_path = glob.glob(
-            f"data/images/pokemon/poke_capture_{int(caught_pokemon['NUMBER']):04}*_f_n.png"
-        )[0]
-        image = create_pokemon_image(image_path, pokemon_to_capture, False)
-        await event.answer_photo(
-            image,
-            f"All right! {pokemon_to_capture} was caught!",
-        )
-    elif pokemon_to_capture in ["oak", "professor oak", "samuel oak"]:
-        await event.answer(
-            f"Hey! I'm not yours to catch!",
-        )
-    elif pokemon_to_capture:
-        await event.answer(
-            f"Hm no, I haven't seen any wild {pokemon_to_capture}",
-        )
-    else:
-        await event.answer(
-            f"You must tell me which pokemon you want to capture",
-        )
-
-
-@dispatcher.message_handler(
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP],
     commands=["setrate"],
 )
 async def set_rate_handler(event: types.Message):
-    new_rate = event.text.replace("/setrate", "").replace("@oakoakbot", "")
-    new_rate = new_rate.strip().lower()
+    new_rate = event.get_args()
 
     if not new_rate:
         await event.answer(
@@ -126,7 +121,7 @@ async def set_rate_handler(event: types.Message):
         new_rate = float(new_rate)
         if new_rate < 0 or new_rate > 1:
             raise ValueError
-        oak_db.update_group_pokemon_rate(event.chat.id, new_rate)
+        GroupsConfiguration.set_pokemon_rate(event.chat.id, new_rate)
         logger.info(f"Rate for group {event.chat.id} set to {new_rate}")
 
         await event.answer(
@@ -148,9 +143,8 @@ async def set_rate_handler(event: types.Message):
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP],
     commands=["setgens"],
 )
-async def set_rate_handler(event: types.Message):
-    gens = event.text.replace("/setgens", "").replace("@oakoakbot", "")
-    gens = gens.strip().lower()
+async def set_gens_handler(event: types.Message):
+    gens = event.get_args()
 
     if not gens:
         await event.answer(
@@ -161,11 +155,14 @@ async def set_rate_handler(event: types.Message):
         return
 
     try:
-        gen_list = [int(gen) for gen in gens.split(",")]
-        oak_db.update_group_generations(event.chat.id, gen_list)
+        generations = [int(gen) for gen in gens.split(",")]
+        if any([gen > 8 or gen < 0 for gen in generations]):
+            raise ValueError
+
+        GroupsConfiguration.set_generations(event.chat.id, generations)
 
         await event.answer(
-            f"From now on, only Pokemon of generations {gens} will appear.",
+            f"From now on, only Pokemon of generation(s) {gens} will appear.",
             parse_mode=types.ParseMode.HTML,
             disable_web_page_preview=True,
         )
@@ -182,32 +179,82 @@ async def set_rate_handler(event: types.Message):
 @dispatcher.message_handler(
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["showteam"]
 )
-async def capture_handler(event: types.Message):
+async def show_team_handler(event: types.Message):
     return
+
+
+@dispatcher.message_handler(
+    chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["catch"]
+)
+async def capture_handler(event: types.Message):
+    pokemon_guess = event.get_args()
+    wild_encounter = wild_encounters.get(event.chat.id)
+
+    if wild_encounter and compare_pokemon(pokemon_guess, wild_encounter.pokemon.name):
+        caught_pokemon = wild_encounters.pop(event.chat.id)
+        image = await create_pokemon_image(
+            caught_pokemon.sprite_filename, wild_encounter.pokemon.name, False
+        )
+        if caught_pokemon.shiny:
+            await event.answer_photo(
+                image,
+                f"AWESOME\! {event.from_user.get_mention()} caught a "
+                f"*shiny {wild_encounter.pokemon.name}*\!",
+                parse_mode=types.ParseMode.MARKDOWN_V2,
+            )
+
+        else:
+            await event.answer_photo(
+                image,
+                f"Congratulations {event.from_user.get_mention()}\! "
+                f"{wild_encounter.pokemon.name} was caught\!",
+                parse_mode=types.ParseMode.MARKDOWN_V2,
+            )
+    elif pokemon_guess in ["oak", "professor oak", "samuel oak"]:
+        await event.answer(
+            f"Hey! I'm not yours to catch!",
+        )
+    elif pokemon_guess:
+        await event.answer(
+            f"Hm no, I haven't seen any wild {pokemon_guess}",
+        )
+    else:
+        await event.answer(
+            f"You must tell me which pokemon you want to capture",
+        )
 
 
 @dispatcher.message_handler(
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP],
 )
 async def message_handler(event: types.Message):
-    r = random.random()
-    if r > WILD_POKEMON_CHANCE and not len(wild_pokemon):
-        pokemon = pokemon_data[random.randint(0, 386)]  # len(pokemon_data) - 1)]
-        wild_pokemon[pokemon["NAME"].split()[0].lower()] = pokemon
-        image_path = glob.glob(
-            f"data/images/pokemon/poke_capture_{int(pokemon['NUMBER']):04}*_f_n.png"
-        )[0]
-        image = create_pokemon_image(image_path, pokemon["NAME"], True)
+    """Handler called every time a message is sent to a group and it's not a command.
+    It rolls a random and if it's under the group's pokemon rate it spawns a pokemon.
+    """
+    if event.chat.id in wild_encounters:
+        if time.time() - wild_encounters[event.chat.id].release_time > POKEMON_TIMEOUT:
+            wild_encounters.pop(event.chat.id)
+            await event.answer(
+                f"Oh no! the wild pokemon fled!",
+            )
+
+    elif random.random() < GroupsConfiguration.get_pokemon_rate(event.chat.id):
+        wild_encounter = Pokemon.get_random_encounter(event.chat.id)
+        wild_encounters[event.chat.id] = wild_encounter
+        image = await create_pokemon_image(
+            wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
+        )
         await event.answer_photo(
             image,
             f"A wild pokemon appeared!",
         )
-        logger.info(f"{pokemon['NAME']} released on group {event.chat.id}")
+        logger.info(f"{wild_encounter.pokemon.name} released on group {event.chat.id}")
 
 
 async def main():
     try:
         logger.info("Waiting for messages...")
+        dispatcher.middleware.setup(GroupCheck())
         await dispatcher.start_polling()
     finally:
         await bot.close()

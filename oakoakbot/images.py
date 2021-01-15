@@ -39,7 +39,7 @@ def paste_image_with_shadow(base_image, image, position):
     )
 
 
-def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
+async def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
     # Load base image
     base_image = Image.open(BASE_IMAGE).convert("RGB")
 
