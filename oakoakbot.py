@@ -1,17 +1,17 @@
 import asyncio
+import argparse
 import csv
 import os
 import random
-import time
 import string
+import time
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.dispatcher.middlewares import BaseMiddleware
 
-from oakoakbot.db import Pokemon, CaughtPokemon, GroupsConfiguration, Teams
-from oakoakbot.logger import get_logger
+from oakoakbot.db import Pokemon, CaughtPokemon, GroupsConfiguration, PokemonNatures
 from oakoakbot.images import create_pokemon_image
-
+from oakoakbot.logger import get_logger
 
 logger = get_logger()
 
@@ -19,7 +19,7 @@ t0 = time.time()
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dispatcher = Dispatcher(bot=bot)
 
-POKEMON_TIMEOUT = 16
+POKEMON_TIMEOUT = 40
 
 wild_encounters = {}
 images = os.listdir("data/images/pokemon")
@@ -162,7 +162,9 @@ async def set_gens_handler(event: types.Message):
         GroupsConfiguration.set_generations(event.chat.id, generations)
 
         await event.answer(
-            f"From now on, only Pokemon of generation(s) {gens} will appear.",
+            f"From now on, only Pokemon of generation"
+            f"{'s' if len(generations) > 1 else ''} "
+            f"{','.join(str(gen) for gen in generations)} will appear.",
             parse_mode=types.ParseMode.HTML,
             disable_web_page_preview=True,
         )
@@ -190,10 +192,13 @@ async def capture_handler(event: types.Message):
     pokemon_guess = event.get_args()
     wild_encounter = wild_encounters.get(event.chat.id)
 
-    if wild_encounter and compare_pokemon(pokemon_guess, wild_encounter.pokemon.name):
+    if wild_encounter and compare_pokemon(pokemon_guess, wild_encounter.pokemon):
         caught_pokemon = wild_encounters.pop(event.chat.id)
         image = await create_pokemon_image(
             caught_pokemon.sprite_filename, wild_encounter.pokemon.name, False
+        )
+        await CaughtPokemon.catch_pokemon(
+            caught_pokemon, event.from_user.id, event.chat.id
         )
         if caught_pokemon.shiny:
             await event.answer_photo(
@@ -251,7 +256,7 @@ async def message_handler(event: types.Message):
         logger.info(f"{wild_encounter.pokemon.name} released on group {event.chat.id}")
 
 
-async def main():
+async def start():
     try:
         logger.info("Waiting for messages...")
         dispatcher.middleware.setup(GroupCheck())
@@ -260,4 +265,19 @@ async def main():
         await bot.close()
 
 
-asyncio.run(main())
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Oakoakbot's command line.")
+    parser.add_argument(
+        "action",
+        choices=["start", "init-db"],
+        type=str,
+    )
+    args = parser.parse_args()
+
+    if args.action == "start":
+        asyncio.run(start())
+    elif args.action == "init-db":
+        t0 = time.time()
+        Pokemon.init_table_from_csv("data/pokemon.csv")
+        PokemonNatures.init_table_from_csv("data/natures.csv")
+        logger.info(f"DB initialization finished in {time.time() - t0:02}s.")

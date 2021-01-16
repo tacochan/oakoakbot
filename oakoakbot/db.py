@@ -31,13 +31,21 @@ SPRITES_FOLDER = "data/images/pokemon"
 logger = get_logger()
 
 db = SqliteDatabase(DB_FILE)
-registered_groups = []
 
 
 class WildEncounter:
     def __init__(self, pokemon, include_alolan=False, include_galarian=False):
         self.pokemon = pokemon
         self.release_time = time.time()
+        self.nature = PokemonNatures.get_random_nature()
+
+        # Pick an ability at random with less chance of having secondary/hidden ability
+        self.ability = self.pokemon.ability_1
+        if self.pokemon.ability_2 and random.random() < 0.3:
+            self.ability = self.pokemon.ability_2
+        if self.pokemon.ability_hidden and random.random() < 0.1:
+            self.ability = self.pokemon.ability_hidden
+
         self.shiny = False
         if random.random() < SHINY_CHANCE:
             self.shiny = True
@@ -69,6 +77,23 @@ class CustomModel(Model):
         database = db
 
 
+class PokemonNatures(CustomModel):
+    name = CharField()
+    increases = CharField()
+    decreases = CharField()
+
+    @staticmethod
+    def init_table_from_csv(csv_filename):
+        PokemonNatures.delete().execute()
+        with open(csv_filename, "r") as csv_file:
+            rows = csv.DictReader(csv_file)
+            PokemonNatures.insert_many(rows).execute()
+
+    @staticmethod
+    def get_random_nature():
+        return PokemonNatures.select().order_by(fn.Random()).limit(1).execute()[0].id
+
+
 class Pokemon(CustomModel):
     number = IntegerField()
     name = CharField()
@@ -94,34 +119,13 @@ class Pokemon(CustomModel):
 
     @staticmethod
     def init_table_from_csv(csv_filename):
+        Pokemon.delete().execute()
         with open(csv_filename, "r") as csv_file:
-            rows = csv.DictReader(csv_file)
-            pokemon_to_add = [
-                Pokemon(
-                    number=r["NUMBER"],
-                    name=r["NAME"],
-                    type_1=r["TYPE1"],
-                    type_2=r["TYPE2"],
-                    ability_1=r["ABILITY1"],
-                    ability_2=r["ABILITY2"],
-                    ability_hidden=r["ABILITY HIDDEN"],
-                    generation=r["GENERATION"],
-                    legendary=int(r["LEGENDARY"]),
-                    mega=int(r["MEGA_EVOLUTION"]),
-                    height=r["HEIGHT"],
-                    weight=r["WEIGHT"],
-                    hp=r["HP"],
-                    attack=r["ATK"],
-                    defense=r["DEF"],
-                    special_attack=r["SP_ATK"],
-                    special_defense=r["SP_DEF"],
-                    speed=r["SPD"],
-                    total=r["TOTAL"],
-                )
-                for r in rows
-            ]
-
-            Pokemon.bulk_create(pokemon_to_add)
+            pokemon = list(csv.DictReader(csv_file))
+            for p in pokemon:
+                p["legendary"] = bool(int(p["legendary"]))
+                p["mega"] = bool(int(p["mega"]))
+            Pokemon.insert_many(pokemon).execute()
 
     @staticmethod
     def get_random_encounter(group_id) -> WildEncounter:
@@ -135,23 +139,86 @@ class Pokemon(CustomModel):
             .execute()
         )[0]
         logger.info(f"Pokemon fetched in {time.time() - t0:02}")
-        return WildEncounter(pokemon)
+        include_alolan = any(gen > 7 for gen in generations)
+        include_galarian = any(gen > 7 for gen in generations)
+
+        return WildEncounter(pokemon, include_alolan, include_galarian)
 
 
-class PokemonNatures(CustomModel):
-    name = CharField()
-    increases = CharField()
-    decreases = CharField()
+class Teams(CustomModel):
+    user_id = CharField()
+    group_id = CharField()
+
+
+class CaughtPokemon(CustomModel):
+    team_id = ForeignKeyField(Teams)
+    pokemon_id = ForeignKeyField(Pokemon)
+    team_pokemon_id = IntegerField()
+    catch_date = DateTimeField(default=datetime.datetime.now)
+    level = IntegerField(default=1)
+    shiny = BooleanField()
+    gender = CharField()
+    ability = CharField()
+    nature_id = ForeignKeyField(PokemonNatures)
+    hp_iv = IntegerField()
+    attack_iv = IntegerField()
+    defense_iv = IntegerField()
+    special_attack_iv = IntegerField()
+    special_defense_iv = IntegerField()
+    speed_iv = IntegerField()
+
+    @staticmethod
+    async def catch_pokemon(wild_encounter, user_id, group_id):
+        team_id = (
+            Teams.select(Teams.id)
+            .where((Teams.user_id == user_id) & (Teams.group_id == group_id))
+            .execute()
+        )
+        if not len(team_id):
+            logger.info(f"User {user_id} started a brand new team.")
+            team_id = Teams.insert(user_id=user_id, group_id=group_id).execute()
+        else:
+            team_id = team_id[0].id
+
+        CaughtPokemon.insert(
+            team_id=team_id,
+            team_pokemon_id=CaughtPokemon.select()
+            .where(CaughtPokemon.team_id == team_id)
+            .count(),
+            pokemon_id=wild_encounter.pokemon.id,
+            catch_date=datetime.datetime.now(),
+            shiny=wild_encounter.shiny,
+            gender=wild_encounter.gender,
+            ability=wild_encounter.ability,
+            nature_id=wild_encounter.nature,
+            hp_iv=random.randint(0, 31),
+            attack_iv=random.randint(0, 31),
+            defense_iv=random.randint(0, 31),
+            special_attack_iv=random.randint(0, 31),
+            special_defense_iv=random.randint(0, 31),
+            speed_iv=random.randint(0, 31),
+        ).execute()
+
+    @staticmethod
+    async def get_caught_pokemon(user_id, group_id):
+        team_id = (
+            Teams.select(Teams.id)
+            .where((Teams.user_id == user_id) & (Teams.group_id == group_id))
+            .execute()
+        )
+        raise NotImplementedError
 
 
 class GroupsConfiguration(CustomModel):
     group_id = IntegerField(unique=True)
     pokemon_rate = FloatField(default=DEFAULT_SPAWN_RATE)
-    generations = CharField(default=list(range(1, NUM_GENERATIONS + 1)))
+    generations = CharField(
+        default=",".join(str(gen) for gen in range(1, NUM_GENERATIONS + 1))
+    )
 
     @staticmethod
     def add_group(group_id):
-        GroupsConfiguration.create(group_id=group_id)
+        GroupsConfiguration.insert(group_id=group_id).execute()
 
     @staticmethod
     def get_groups():
@@ -171,7 +238,7 @@ class GroupsConfiguration(CustomModel):
     def get_pokemon_rate(group_id):
         return (
             GroupsConfiguration.select(GroupsConfiguration.pokemon_rate)
-            .where(group_id == group_id)
+            .where(GroupsConfiguration.group_id == group_id)
             .execute()
         )[0].pokemon_rate
 
@@ -189,34 +256,11 @@ class GroupsConfiguration(CustomModel):
     def get_generations(group_id):
         generations = (
             GroupsConfiguration.select(GroupsConfiguration.generations)
-            .where(group_id == group_id)
+            .where(GroupsConfiguration.group_id == group_id)
             .execute()
         )[0].generations
         return [int(gen) for gen in generations.split(",")]
 
 
-class Teams(CustomModel):
-    user_id = CharField()
-    group_id = CharField()
-
-
-class CaughtPokemon(CustomModel):
-    team_id = ForeignKeyField(Teams)
-    pokemon_id = ForeignKeyField(Pokemon)
-    catch_date = DateTimeField(default=datetime.datetime.now)
-    level = IntegerField(default=1)
-    shiny = BooleanField()
-    gender = CharField()
-    ability = CharField()
-    nature = CharField()
-    hp_iv = IntegerField()
-    attack_iv = IntegerField()
-    defense_iv = IntegerField()
-    special_attack_iv = IntegerField()
-    special_defense_iv = IntegerField()
-    speed_iv = IntegerField()
-
-
 db.connect()
 db.create_tables([Pokemon, PokemonNatures, Teams, GroupsConfiguration, CaughtPokemon])
-registered_groups = GroupsConfiguration.get_groups()
