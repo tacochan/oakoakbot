@@ -1,6 +1,5 @@
 import asyncio
 import argparse
-import csv
 import os
 import random
 import string
@@ -9,7 +8,13 @@ import time
 from aiogram import Bot, Dispatcher, types
 from aiogram.dispatcher.middlewares import BaseMiddleware
 
-from oakoakbot.db import Pokemon, CaughtPokemon, GroupsConfiguration, PokemonNatures
+from oakoakbot.db import (
+    Pokemon,
+    CaughtPokemon,
+    GroupsConfiguration,
+    PokemonNatures,
+    WildEncounter,
+)
 from oakoakbot.images import create_pokemon_image
 from oakoakbot.logger import get_logger
 
@@ -19,27 +24,44 @@ t0 = time.time()
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dispatcher = Dispatcher(bot=bot)
 
-POKEMON_TIMEOUT = 40
+POKEMON_TIMEOUT = 120
 
 wild_encounters = {}
-images = os.listdir("data/images/pokemon")
-
-with open("data/pokemon.csv") as f:
-    pokemon_data = list(csv.DictReader(f))
 
 
-logger.info(f"Initial setup finished in {time.time() - t0}s.")
-
-trans_table = str.maketrans("", "", string.punctuation + " ")
-
-
-def compare_pokemon(pokemon1: str, pokemon2: str):
+def pokemon_names_are_equivalent(pokemon_guess: str, wild_encounter: WildEncounter):
     """Compare if two strings containing pokemon names are equal enough for the pokemon
     to be considered caught
     """
-    pokemon1 = pokemon1.lower().translate(trans_table)
-    pokemon2 = pokemon2.lower().translate(trans_table)
-    return pokemon1 == pokemon2
+    pokemon_guess = pokemon_guess.lower()
+    wild_pokemon_name = wild_encounter.pokemon.name.lower()
+
+    # Allow both adding and not adding the region name
+    for region in ["alolan", "galarian"]:
+        if wild_encounter.pokemon.region == region:
+            if (
+                pokemon_guess.startswith(region)
+                or pokemon_guess.startswith(region[:-1])
+                or pokemon_guess.endswith(region)
+                or pokemon_guess.endswith(region[:-1])
+            ):
+                pokemon_guess = pokemon_guess.replace(region, "")
+                pokemon_guess = pokemon_guess.replace(region[:-1], "")
+
+    # Allow both adding and not adding gender
+    if wild_pokemon_name.endswith(" m"):
+        pokemon_guess = pokemon_guess.replace(" male", "").replace("male ", "")
+        pokemon_guess = pokemon_guess.replace(" m", "") + " m"
+    if wild_pokemon_name.endswith(" f"):
+        pokemon_guess = pokemon_guess.replace(" female", "").replace(" female", "")
+        pokemon_guess = pokemon_guess.replace(" f", "") + " f"
+
+    # Remove spaces and punctuations from both strings
+    trans_table = str.maketrans("", "", string.punctuation + " ")
+    pokemon_guess = pokemon_guess.translate(trans_table)
+    wild_pokemon_name = wild_pokemon_name.translate(trans_table)
+
+    return pokemon_guess == wild_pokemon_name
 
 
 class GroupCheck(BaseMiddleware):
@@ -192,7 +214,7 @@ async def capture_handler(event: types.Message):
     pokemon_guess = event.get_args()
     wild_encounter = wild_encounters.get(event.chat.id)
 
-    if wild_encounter and compare_pokemon(pokemon_guess, wild_encounter.pokemon):
+    if wild_encounter and pokemon_names_are_equivalent(pokemon_guess, wild_encounter):
         caught_pokemon = wild_encounters.pop(event.chat.id)
         image = await create_pokemon_image(
             caught_pokemon.sprite_filename, wild_encounter.pokemon.name, False
@@ -265,11 +287,28 @@ async def start():
         await bot.close()
 
 
+async def check_performance(loops):
+    total_image_time = 0
+
+    for i in range(loops):
+        wild_encounter = Pokemon.get_random_encounter(-1001237373620)
+        t_image = time.time()
+        await create_pokemon_image(
+            wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
+        )
+        total_image_time += time.time() - t_image
+
+    logger.info(
+        f"Stress test finished. {loops} images processed in {total_image_time:03}s\n"
+        f" with an average of {total_image_time/loops:04}s per image"
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Oakoakbot's command line.")
     parser.add_argument(
         "action",
-        choices=["start", "init-db"],
+        choices=["start", "init-db", "validate-data", "check-performance"],
         type=str,
     )
     args = parser.parse_args()
@@ -281,3 +320,9 @@ if __name__ == "__main__":
         Pokemon.init_table_from_csv("data/pokemon.csv")
         PokemonNatures.init_table_from_csv("data/natures.csv")
         logger.info(f"DB initialization finished in {time.time() - t0:02}s.")
+    elif args.action == "validate-data":
+        from scripts.data_validator import validate_data
+
+        validate_data()
+    elif args.action == "check-performance":
+        asyncio.run(check_performance(60))

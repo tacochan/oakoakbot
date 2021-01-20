@@ -58,9 +58,8 @@ async def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
 
     # Paste pokemon logo
     pokemon_logo = Image.open(POKEMON_LOGO).convert("RGBA")
-    pokemon_logo.thumbnail(
-        [math.ceil(dim * 0.5) for dim in pokemon_logo.size]
-    )  # remove this
+    # TODO: This can be done offline
+    pokemon_logo.thumbnail([math.ceil(dim * 0.5) for dim in pokemon_logo.size])
     pokemon_logo = pokemon_logo.crop(pokemon_logo.getbbox())
     paste_image_with_shadow(
         base_image,
@@ -71,9 +70,9 @@ async def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
     if is_silhouette:
         # Paste pokemon logo
         question_mark = Image.open(QUESTION_MARK).convert("RGBA")
-        question_mark.thumbnail(
-            [math.ceil(dim * 0.75) for dim in question_mark.size]
-        )  # remove this
+
+        # TODO: This can be done offline
+        question_mark.thumbnail([math.ceil(dim * 0.75) for dim in question_mark.size])
         question_mark = question_mark.crop(question_mark.getbbox())
         paste_image_with_shadow(
             base_image,
@@ -124,7 +123,8 @@ async def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
             ),
         )
 
-    # Resize the image to increase response time (make this parameterizable)
+    # Resize the image to increase response time
+    # TODO: This can be done offline to reduce memory usage and response time.
     base_image.thumbnail([math.ceil(dim * 0.6) for dim in base_image.size])
 
     # Save it to bytes buffer

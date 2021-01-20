@@ -34,7 +34,7 @@ db = SqliteDatabase(DB_FILE)
 
 
 class WildEncounter:
-    def __init__(self, pokemon, include_alolan=False, include_galarian=False):
+    def __init__(self, pokemon):
         self.pokemon = pokemon
         self.release_time = time.time()
         self.nature = PokemonNatures.get_random_nature()
@@ -50,26 +50,16 @@ class WildEncounter:
         if random.random() < SHINY_CHANCE:
             self.shiny = True
 
-        shiny_flag = "r" if self.shiny else "n"
-        filename = f"poke_capture_{pokemon.number:04}*_{shiny_flag}.png"
+        filename = f"{pokemon.number:04}_{pokemon.form:02}_{pokemon.region}"
+        filename += "_s" if self.shiny else "_n"
+        filename += "_m" if self.pokemon.mega else "_n"
 
-        sprites = glob.glob(os.path.join(SPRITES_FOLDER, filename))
-
-        # Exclude mega evolution sprites
-        sprites = [sprite for sprite in sprites if "_m_" not in sprite]
-
-        # Exclude alolan and galarian forms if specified
-        if include_alolan is False:
-            sprites = [sprite for sprite in sprites if "_a_" not in sprite]
-        if include_galarian is False:
-            sprites = [sprite for sprite in sprites if "_g_" not in sprite]
+        sprites = glob.glob(os.path.join(SPRITES_FOLDER, filename + "*.png"))
 
         self.sprite_filename = sprites[random.randint(0, len(sprites) - 1)]
 
         attributes = self.sprite_filename.split("_")
-        self.form = attributes[3]
-        self.gender = attributes[4]
-        self.region = attributes[5]
+        self.gender = attributes[-1].replace(".png", "")
 
 
 class CustomModel(Model):
@@ -116,6 +106,7 @@ class Pokemon(CustomModel):
     special_defense = IntegerField()
     speed = IntegerField()
     total = IntegerField()
+    enabled = BooleanField()
 
     @staticmethod
     def init_table_from_csv(csv_filename):
@@ -125,24 +116,25 @@ class Pokemon(CustomModel):
             for p in pokemon:
                 p["legendary"] = bool(int(p["legendary"]))
                 p["mega"] = bool(int(p["mega"]))
+                p["enabled"] = bool(int(p["enabled"]))
             Pokemon.insert_many(pokemon).execute()
 
     @staticmethod
     def get_random_encounter(group_id) -> WildEncounter:
-        t0 = time.time()
         generations = GroupsConfiguration.get_generations(group_id)
         pokemon = (
             Pokemon.select()
-            .where(Pokemon.generation.in_(generations) & (Pokemon.mega == 0))
+            .where(
+                Pokemon.generation.in_(generations)
+                & (Pokemon.mega == 0)
+                & (Pokemon.enabled == 1)
+            )
             .order_by(fn.Random())
             .limit(1)
             .execute()
         )[0]
-        logger.info(f"Pokemon fetched in {time.time() - t0:02}")
-        include_alolan = any(gen > 7 for gen in generations)
-        include_galarian = any(gen > 7 for gen in generations)
 
-        return WildEncounter(pokemon, include_alolan, include_galarian)
+        return WildEncounter(pokemon)
 
 
 class Teams(CustomModel):
