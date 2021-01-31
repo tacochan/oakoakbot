@@ -20,7 +20,6 @@ from peewee import (
 from oakoakbot.logger import get_logger
 
 DEFAULT_SPAWN_RATE = 1 / 133
-SHINY_CHANCE = 0.01  # This should be relative to group chance
 NUM_GENERATIONS = 8
 
 POKEMON_CSV = "data/pokemon.csv"
@@ -34,10 +33,11 @@ db = SqliteDatabase(DB_FILE)
 
 
 class WildEncounter:
-    def __init__(self, pokemon):
+    def __init__(self, pokemon, shiny=False):
         self.pokemon = pokemon
         self.release_time = time.time()
         self.nature = PokemonNatures.get_random_nature()
+        self.shiny = shiny
 
         # Pick an ability at random with less chance of having secondary/hidden ability
         self.ability = self.pokemon.ability_1
@@ -45,10 +45,6 @@ class WildEncounter:
             self.ability = self.pokemon.ability_2
         if self.pokemon.ability_hidden and random.random() < 0.1:
             self.ability = self.pokemon.ability_hidden
-
-        self.shiny = False
-        if random.random() < SHINY_CHANCE:
-            self.shiny = True
 
         filename = f"{pokemon.number:04}_{pokemon.form:02}_{pokemon.region}"
         filename += "_s" if self.shiny else "_n"
@@ -107,6 +103,7 @@ class Pokemon(CustomModel):
     speed = IntegerField()
     total = IntegerField()
     enabled = BooleanField()
+    rarity_tier = CharField()
 
     @staticmethod
     def init_table_from_csv(csv_filename):
@@ -120,21 +117,34 @@ class Pokemon(CustomModel):
             Pokemon.insert_many(pokemon).execute()
 
     @staticmethod
-    def get_random_encounter(group_id) -> WildEncounter:
+    def get_random_encounter(group_id, rarity_tier, shiny=False) -> WildEncounter:
         generations = GroupsConfiguration.get_generations(group_id)
         pokemon = (
             Pokemon.select()
             .where(
-                Pokemon.generation.in_(generations)
+                (
+                    Pokemon.number
+                    == Pokemon.select(Pokemon.number)
+                    .where(
+                        Pokemon.generation.in_(generations)
+                        & (Pokemon.mega == 0)
+                        & (Pokemon.enabled == 1)
+                        & (Pokemon.rarity_tier == rarity_tier)
+                    )
+                    .group_by(Pokemon.number)
+                    .order_by(fn.Random())
+                    .limit(1)
+                )
                 & (Pokemon.mega == 0)
                 & (Pokemon.enabled == 1)
+                & (Pokemon.rarity_tier == rarity_tier)
             )
             .order_by(fn.Random())
             .limit(1)
             .execute()
         )[0]
 
-        return WildEncounter(pokemon)
+        return WildEncounter(pokemon, shiny)
 
 
 class Teams(CustomModel):
@@ -143,15 +153,15 @@ class Teams(CustomModel):
 
 
 class CaughtPokemon(CustomModel):
-    team_id = ForeignKeyField(Teams)
-    pokemon_id = ForeignKeyField(Pokemon)
+    team = ForeignKeyField(Teams)
+    pokemon = ForeignKeyField(Pokemon)
     team_pokemon_id = IntegerField()
     catch_date = DateTimeField(default=datetime.datetime.now)
     level = IntegerField(default=1)
     shiny = BooleanField()
     gender = CharField()
     ability = CharField()
-    nature_id = ForeignKeyField(PokemonNatures)
+    nature = ForeignKeyField(PokemonNatures)
     hp_iv = IntegerField()
     attack_iv = IntegerField()
     defense_iv = IntegerField()
@@ -173,16 +183,16 @@ class CaughtPokemon(CustomModel):
             team_id = team_id[0].id
 
         CaughtPokemon.insert(
-            team_id=team_id,
+            team=team_id,
             team_pokemon_id=CaughtPokemon.select()
             .where(CaughtPokemon.team_id == team_id)
             .count(),
-            pokemon_id=wild_encounter.pokemon.id,
+            pokemon=wild_encounter.pokemon.id,
             catch_date=datetime.datetime.now(),
             shiny=wild_encounter.shiny,
             gender=wild_encounter.gender,
             ability=wild_encounter.ability,
-            nature_id=wild_encounter.nature,
+            nature=wild_encounter.nature,
             hp_iv=random.randint(0, 31),
             attack_iv=random.randint(0, 31),
             defense_iv=random.randint(0, 31),
@@ -193,12 +203,18 @@ class CaughtPokemon(CustomModel):
 
     @staticmethod
     async def get_caught_pokemon(user_id, group_id):
-        team_id = (
-            Teams.select(Teams.id)
-            .where((Teams.user_id == user_id) & (Teams.group_id == group_id))
+        return list(
+            CaughtPokemon.select()
+            .join(Pokemon, on=(CaughtPokemon.pokemon == Pokemon.id))
+            .where(
+                CaughtPokemon.team
+                == Teams.select(Teams.id).where(
+                    (Teams.user_id == user_id) & (Teams.group_id == group_id)
+                )
+            )
+            .order_by(CaughtPokemon.team_pokemon_id)
             .execute()
         )
-        raise NotImplementedError
 
 
 class GroupsConfiguration(CustomModel):

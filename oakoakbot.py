@@ -25,6 +25,13 @@ bot = Bot(token=os.environ["BOT_TOKEN"])
 dispatcher = Dispatcher(bot=bot)
 
 POKEMON_TIMEOUT = 120
+SHINY_CHANCE = 1 / 10000
+RARITY_TIERS = {
+    "ultra-rare": 0.025,
+    "rare": 0.15,  # 0.125
+    "common": 0.50,  # 0.35
+    "ultra-common": 1,  # 0.50
+}
 
 wild_encounters = {}
 
@@ -204,7 +211,15 @@ async def set_gens_handler(event: types.Message):
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["showteam"]
 )
 async def show_team_handler(event: types.Message):
-    return
+    pokemon = await CaughtPokemon.get_caught_pokemon(event.from_user.id, event.chat.id)
+    answer = f"{event.from_user.get_mention(as_html=True)}'s caught Pokemon:\n"
+    for p in pokemon:
+        answer += f"{p.team_pokemon_id}. {p.pokemon.name}\n"
+    await event.answer(
+        answer,
+        parse_mode=types.ParseMode.HTML,
+        disable_web_page_preview=True,
+    )
 
 
 @dispatcher.message_handler(
@@ -225,17 +240,17 @@ async def capture_handler(event: types.Message):
         if caught_pokemon.shiny:
             await event.answer_photo(
                 image,
-                f"AWESOME\! {event.from_user.get_mention()} caught a "
-                f"*shiny {wild_encounter.pokemon.name}*\!",
-                parse_mode=types.ParseMode.MARKDOWN_V2,
+                f"AWESOME! {event.from_user.get_mention(as_html=True)} caught a "
+                f"<b>shiny {wild_encounter.pokemon.name}</b>!",
+                parse_mode=types.ParseMode.HTML,
             )
 
         else:
             await event.answer_photo(
                 image,
-                f"Congratulations {event.from_user.get_mention()}\! "
-                f"{wild_encounter.pokemon.name} was caught\!",
-                parse_mode=types.ParseMode.MARKDOWN_V2,
+                f"Congratulations {event.from_user.get_mention(as_html=True)}! "
+                f"{wild_encounter.pokemon.name} was caught!",
+                parse_mode=types.ParseMode.HTML,
             )
     elif pokemon_guess in ["oak", "professor oak", "samuel oak"]:
         await event.answer(
@@ -264,9 +279,10 @@ async def message_handler(event: types.Message):
             await event.answer(
                 f"Oh no! the wild pokemon fled!",
             )
-
-    elif random.random() < GroupsConfiguration.get_pokemon_rate(event.chat.id):
-        wild_encounter = Pokemon.get_random_encounter(event.chat.id)
+    elif (r := random.random()) < GroupsConfiguration.get_pokemon_rate(event.chat.id):
+        shiny = r < SHINY_CHANCE
+        rarity = next(tier for tier, chance in RARITY_TIERS.items() if r < chance)
+        wild_encounter = Pokemon.get_random_encounter(event.chat.id, rarity, shiny)
         wild_encounters[event.chat.id] = wild_encounter
         image = await create_pokemon_image(
             wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
