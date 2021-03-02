@@ -1,11 +1,14 @@
-import asyncio
 import argparse
+import asyncio
 import datetime
+import glob
+import io
 import os
 import random
 import string
 import time
 
+from PIL import Image
 from aiogram import Bot, Dispatcher, types
 from aiogram.dispatcher.middlewares import BaseMiddleware
 
@@ -34,6 +37,12 @@ RARITY_TIERS = {
 }
 
 wild_encounters = {}
+prec_images = {}
+for f in glob.glob("data/precomputed-images/silhouettes/*"):
+    image = Image.open(f)
+    with io.BytesIO() as output:
+        image.save(output, format="GIF")
+        prec_images[os.path.basename(f)] = output.getvalue()
 
 
 def pokemon_names_are_equivalent(pokemon_guess: str, wild_encounter: WildEncounter):
@@ -274,6 +283,52 @@ async def catch_handler(event: types.Message):
         await event.answer(
             f"You must tell me which pokemon you want to catch",
         )
+
+
+@dispatcher.message_handler(
+    chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["speedtest"]
+)
+async def build_handler(event: types.Message):
+    """Handler called every time a message is sent to a group and it's not a command.
+    It rolls a random and if it's under the group's pokemon rate it spawns a pokemon.
+    """
+
+    mode = event.get_args()
+    if mode not in ["generate", "read", "memory"]:
+        return
+
+    r = random.random()
+    shiny = r < SHINY_CHANCE
+    rarity = next(tier for tier, chance in RARITY_TIERS.items() if r < chance)
+    generations = GroupsConfiguration.get_generations(event.chat.id)
+
+    random_encounter_t0 = time.time()
+    wild_encounter = Pokemon.get_random_encounter(generations, rarity, shiny)
+    random_encounter_time = time.time() - random_encounter_t0
+
+    get_image_t0 = time.time()
+    if mode == "generate":
+        image = create_pokemon_image(
+            wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
+        )
+
+    elif mode == "read":
+        image = Image.open(
+            f"data/precomputed-images/silhouettes/{os.path.basename(wild_encounter.sprite_filename)}"
+        )
+        with io.BytesIO() as output:
+            image.save(output, format="GIF")
+            image = output.getvalue()
+    elif mode == "memory":
+        image = prec_images[os.path.basename(wild_encounter.sprite_filename)]
+    get_image_time = time.time() - get_image_t0
+
+    await event.answer_photo(
+        image,
+        f"Random encounter took {random_encounter_time:04}s.\n Image generation took "
+        f"{get_image_time:04}s",
+    )
+    logger.info(f"{wild_encounter.pokemon.name} released on group {event.chat.id}")
 
 
 @dispatcher.message_handler(
