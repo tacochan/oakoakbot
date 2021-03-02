@@ -39,11 +39,11 @@ def paste_image_with_shadow(base_image, image, position):
     )
 
 
-async def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
+def create_pokemon_image(pokemon_image, pokemon_name, is_silhouette):
     # Load base image
     base_image = Image.open(BASE_IMAGE).convert("RGB")
 
-    # Create pokemon image or silhouette with shadows
+    # Create pokemon image or silhouettes with shadows
     pokemon_image = Image.open(pokemon_image).convert("RGBA")
     pokemon_image = pokemon_image.crop(pokemon_image.getbbox())
     if is_silhouette:

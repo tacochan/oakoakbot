@@ -117,8 +117,9 @@ class Pokemon(CustomModel):
             Pokemon.insert_many(pokemon).execute()
 
     @staticmethod
-    def get_random_encounter(group_id, rarity_tier, shiny=False) -> WildEncounter:
-        generations = GroupsConfiguration.get_generations(group_id)
+    def get_random_encounter(
+        generations: list, rarity_tier: str, shiny=False
+    ) -> WildEncounter:
         pokemon = (
             Pokemon.select()
             .where(
@@ -170,7 +171,7 @@ class CaughtPokemon(CustomModel):
     speed_iv = IntegerField()
 
     @staticmethod
-    async def catch_pokemon(wild_encounter, user_id, group_id):
+    async def catch_pokemon(wild_encounter: WildEncounter, user_id: int, group_id: int):
         team_id = (
             Teams.select(Teams.id)
             .where((Teams.user_id == user_id) & (Teams.group_id == group_id))

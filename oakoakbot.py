@@ -1,5 +1,6 @@
 import asyncio
 import argparse
+import datetime
 import os
 import random
 import string
@@ -20,7 +21,6 @@ from oakoakbot.logger import get_logger
 
 logger = get_logger()
 
-t0 = time.time()
 bot = Bot(token=os.environ["BOT_TOKEN"])
 dispatcher = Dispatcher(bot=bot)
 
@@ -122,7 +122,7 @@ async def help_handler(event: types.Message):
         f"this group\. <rate\> must be a float between 0 and 1\. Each message will "
         f"have a chance of <rate\> to spawn a wild Pokemon\."
         f"\n"
-        f"/showteam \- See the Pokemon you've captured on this group\."
+        f"/showteam \- See the Pokemon you've caught on this group\."
         f"\n\n\n"
         f"Bugs and suggestions can be reported on oakoakbot's "
         f"[GitHub page](https://github.com/tacochan/oakoakbot)\.",
@@ -211,10 +211,20 @@ async def set_gens_handler(event: types.Message):
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["showteam"]
 )
 async def show_team_handler(event: types.Message):
+
     pokemon = await CaughtPokemon.get_caught_pokemon(event.from_user.id, event.chat.id)
-    answer = f"{event.from_user.get_mention(as_html=True)}'s caught Pokemon:\n"
-    for p in pokemon:
-        answer += f"{p.team_pokemon_id}. {p.pokemon.name}\n"
+    if not len(pokemon):
+        answer = f"You still haven't caught any Pokemon!"
+    else:
+        answer = f"{event.from_user.get_mention(as_html=True)}'s caught Pokemon:\n"
+        for p in pokemon[50]:
+            answer += f"{p.team_pokemon_id + 1}. {p.pokemon.name}\n"
+        if len(pokemon) > 50:
+            answer = (
+                f"\nOnly your first 50 Pokemon can be shown, I'll eventually "
+                f"find a way to fix that."
+            )
+
     await event.answer(
         answer,
         parse_mode=types.ParseMode.HTML,
@@ -225,7 +235,7 @@ async def show_team_handler(event: types.Message):
 @dispatcher.message_handler(
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["catch"]
 )
-async def capture_handler(event: types.Message):
+async def catch_handler(event: types.Message):
     pokemon_guess = event.get_args()
     wild_encounter = wild_encounters.get(event.chat.id)
 
@@ -262,7 +272,7 @@ async def capture_handler(event: types.Message):
         )
     else:
         await event.answer(
-            f"You must tell me which pokemon you want to capture",
+            f"You must tell me which pokemon you want to catch",
         )
 
 
@@ -282,7 +292,8 @@ async def message_handler(event: types.Message):
     elif (r := random.random()) < GroupsConfiguration.get_pokemon_rate(event.chat.id):
         shiny = r < SHINY_CHANCE
         rarity = next(tier for tier, chance in RARITY_TIERS.items() if r < chance)
-        wild_encounter = Pokemon.get_random_encounter(event.chat.id, rarity, shiny)
+        generations = GroupsConfiguration.get_generations(event.chat.id)
+        wild_encounter = Pokemon.get_random_encounter(generations, rarity, shiny)
         wild_encounters[event.chat.id] = wild_encounter
         image = await create_pokemon_image(
             wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
@@ -301,6 +312,35 @@ async def start():
         await dispatcher.start_polling()
     finally:
         await bot.close()
+
+
+async def populate_database(entries):
+    pokemon = []
+    tier = list(RARITY_TIERS)[random.randint(0, 3)]
+    wild_encounter = Pokemon.get_random_encounter(list(range(1, 9)), tier)
+    date_now = datetime.datetime.now()
+    for i in range(entries):
+        pokemon.append(
+            {
+                "team": 1,
+                "team_pokemon_id": 1,
+                "pokemon": wild_encounter.pokemon.id,
+                "catch_date": date_now,
+                "shiny": wild_encounter.shiny,
+                "gender": wild_encounter.gender,
+                "ability": wild_encounter.ability,
+                "nature": wild_encounter.nature,
+                "hp_iv": 1,
+                "attack_iv": 1,
+                "defense_iv": 1,
+                "special_attack_iv": 1,
+                "special_defense_iv": 1,
+                "speed_iv": 1,
+            }
+        )
+    insert_t0 = time.time()
+    CaughtPokemon.insert_many(pokemon).execute()
+    logger.info(f"{entries} Pokemon inserted in {time.time() - insert_t0}s")
 
 
 async def check_performance(loops):
@@ -324,7 +364,14 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Oakoakbot's command line.")
     parser.add_argument(
         "action",
-        choices=["start", "init-db", "validate-data", "check-performance"],
+        choices=[
+            "start",
+            "init-images",
+            "init-db",
+            "validate-data",
+            "check-performance",
+            "populate_database",
+        ],
         type=str,
     )
     args = parser.parse_args()
@@ -332,13 +379,17 @@ if __name__ == "__main__":
     if args.action == "start":
         asyncio.run(start())
     elif args.action == "init-db":
-        t0 = time.time()
+        query_t0 = time.time()
         Pokemon.init_table_from_csv("data/pokemon.csv")
         PokemonNatures.init_table_from_csv("data/natures.csv")
-        logger.info(f"DB initialization finished in {time.time() - t0:02}s.")
+        logger.info(f"DB initialization finished in {time.time() - query_t0:02}s.")
     elif args.action == "validate-data":
         from scripts.data_validator import validate_data
 
         validate_data()
     elif args.action == "check-performance":
-        asyncio.run(check_performance(60))
+        asyncio.run(check_performance(100))
+    elif args.action == "init-images":
+        from scripts.image_preprocess import preprocess_images
+
+        preprocess_images()
