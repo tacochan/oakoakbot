@@ -241,7 +241,7 @@ async def catch_handler(event: types.Message):
 
     if wild_encounter and pokemon_names_are_equivalent(pokemon_guess, wild_encounter):
         caught_pokemon = wild_encounters.pop(event.chat.id)
-        image = await create_pokemon_image(
+        image = create_pokemon_image(
             caught_pokemon.sprite_filename, wild_encounter.pokemon.name, False
         )
         await CaughtPokemon.catch_pokemon(
@@ -295,7 +295,7 @@ async def message_handler(event: types.Message):
         generations = GroupsConfiguration.get_generations(event.chat.id)
         wild_encounter = Pokemon.get_random_encounter(generations, rarity, shiny)
         wild_encounters[event.chat.id] = wild_encounter
-        image = await create_pokemon_image(
+        image = create_pokemon_image(
             wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
         )
         await event.answer_photo(
