@@ -1,4 +1,6 @@
+# Make sure all the requirements listed here are available as wheels for
+# armv7l at any of the following repositories:
+#  - https://pypi.org/simple
+#  - https://piwheels.org/simple
 peewee~=3.14.1
 aiogram~=2.11.2
-numpy~=1.20.1
-Pillow~=8.1.0

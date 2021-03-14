@@ -1,0 +1,4 @@
+# These requirements are still unavailable as wheels for armv7l,
+# so they'll be installed sooner to ensure cache hits during builds.
+numpy~=1.20
+Pillow~=8.1.0
