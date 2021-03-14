@@ -25,9 +25,6 @@ jobs:
 
     - name: Docker Setup Buildx
       uses: docker/setup-buildx-action@v1.1.1
-      
-    - name: Available platforms
-      run: echo ${{ steps.buildx.outputs.platforms }}
 
     - name: Prepare      
       if: success()      
@@ -46,6 +43,9 @@ jobs:
       if: success()      
       run: |        
         docker buildx build \
+          --cache-from ${{ steps.prepare.outputs.docker_image }}
           --platform ${{ steps.prepare.outputs.docker_platforms }} \
           --tag ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.docker_tag }} \
+          --progress=plain \
+          --build-arg BUILDKIT_INLINE_CACHE=1 \
           --output type=image,push=true .
