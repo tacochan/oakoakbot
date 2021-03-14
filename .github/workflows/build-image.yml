@@ -43,7 +43,7 @@ jobs:
       if: success()      
       run: |        
         docker buildx build \
-          --cache-from ${{ steps.prepare.outputs.docker_image }}
+          --cache-from ${{ steps.prepare.outputs.docker_image }} \
           --platform ${{ steps.prepare.outputs.docker_platforms }} \
           --tag ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.docker_tag }} \
           --progress=plain \
