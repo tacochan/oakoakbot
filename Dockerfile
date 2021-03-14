@@ -4,7 +4,7 @@ COPY data /app/data
 
 COPY requirements.txt /
 RUN pip install --upgrade pip && \
-    pip install -r /requirements.txt && \
+    pip install --extra-index-url https://www.piwheels.org/simple -r /requirements.txt && \
     rm /requirements.txt
 
 COPY oakoakbot /app/oakoakbot
