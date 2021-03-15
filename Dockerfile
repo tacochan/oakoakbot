@@ -6,15 +6,26 @@ RUN pip install --upgrade pip && \
     pip install -r build-requirements.txt && \
     rm /build-requirements.txt
 
-COPY data /app/data
+# Fetch images from Google Drive
+RUN pip install gdown && \
+    gdown https://drive.google.com/uc?id=1nQEBnDPI1uMU3fgzlNitejJhtI6o3oGC && \
+    mkdir /app && \
+    unzip precomputed-images.zip -q -d /app/data && \
+    rm precomputed-images.zip
 
+# Install quick-to-install python requirements
 COPY requirements.txt /
 RUN pip install --extra-index-url https://www.piwheels.org/simple -r /requirements.txt && \
     rm /requirements.txt
 
+# Copy lightweight data
+COPY data /app/data
+
+# Copy code and entry point
 COPY oakoakbot /app/oakoakbot
 COPY oakoakbot.py /app
 WORKDIR /app
 
-CMD ["python", "-u", "oakoakbot.py"]
+# Launch the bot by default
+CMD ["python", "-u", "oakoakbot.py", "start"]
 
