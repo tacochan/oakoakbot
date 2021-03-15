@@ -10,7 +10,7 @@ RUN pip install --upgrade pip && \
 RUN pip install gdown && \
     gdown https://drive.google.com/uc?id=1nQEBnDPI1uMU3fgzlNitejJhtI6o3oGC && \
     mkdir /app && \
-    unzip precomputed-images.zip -q -d /app/data && \
+    unzip -q precomputed-images.zip -d /app/data && \
     rm precomputed-images.zip
 
 # Install quick-to-install python requirements
