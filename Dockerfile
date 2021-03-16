@@ -27,5 +27,6 @@ COPY oakoakbot.py /app
 WORKDIR /app
 
 # Launch the bot by default
-CMD ["python", "-u", "oakoakbot.py", "start"]
+ENTRYPOINT ["python", "-u", "oakoakbot.py"]
+CMD ["start"]
 

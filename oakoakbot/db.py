@@ -1,6 +1,5 @@
 import csv
 import datetime
-import glob
 import os
 import random
 import time
@@ -17,18 +16,18 @@ from peewee import (
     ForeignKeyField,
 )
 
+from oakoakbot.images import load_pokemon_images
 from oakoakbot.logger import get_logger
 
 DEFAULT_SPAWN_RATE = 1 / 133
 NUM_GENERATIONS = 8
 
-POKEMON_CSV = "data/pokemon.csv"
-DB_FILE = "data/oak_db.sqlite3"
-SPRITES_FOLDER = "data/images/pokemon"
-
+DB_FILE = os.environ.get("DATABASE_PATH", "/db/oak_db.sqlite3")
 
 logger = get_logger()
 
+if not os.path.isdir(os.path.dirname(DB_FILE)):
+    os.makedirs(os.path.dirname(DB_FILE))
 db = SqliteDatabase(DB_FILE)
 
 
@@ -46,16 +45,23 @@ class WildEncounter:
         if self.pokemon.ability_hidden and random.random() < 0.1:
             self.ability = self.pokemon.ability_hidden
 
-        filename = f"{pokemon.number:04}_{pokemon.form:02}_{pokemon.region}"
-        filename += "_s" if self.shiny else "_n"
-        filename += "_m" if self.pokemon.mega else "_n"
+        # Pick a gender at random, unless it has a gender exclusivity
+        self.gender = "male" if random.random() < 0.5 else "female"
+        if self.pokemon.gender == "mo":
+            self.gender = "male"
+        elif self.pokemon.gender == "fo":
+            self.gender = "female"
+        elif self.pokemon.gender == "uk":
+            self.gender = "unknown"
 
-        sprites = glob.glob(os.path.join(SPRITES_FOLDER, filename + "*.png"))
-
-        self.sprite_filename = sprites[random.randint(0, len(sprites) - 1)]
-
-        attributes = self.sprite_filename.split("_")
-        self.gender = attributes[-1].replace(".png", "")
+        self.colour_image, self.silhouette_image = load_pokemon_images(
+            self.pokemon.number,
+            self.pokemon.form,
+            self.pokemon.region,
+            self.shiny,
+            self.pokemon.mega,
+            self.pokemon.gender,
+        )
 
 
 class CustomModel(Model):
@@ -104,6 +110,7 @@ class Pokemon(CustomModel):
     total = IntegerField()
     enabled = BooleanField()
     rarity_tier = CharField()
+    gender = CharField()
 
     @staticmethod
     def init_table_from_csv(csv_filename):

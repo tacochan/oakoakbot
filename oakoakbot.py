@@ -16,7 +16,6 @@ from oakoakbot.db import (
     PokemonNatures,
     WildEncounter,
 )
-from oakoakbot.images import create_pokemon_image
 from oakoakbot.logger import get_logger
 
 logger = get_logger()
@@ -211,18 +210,17 @@ async def set_gens_handler(event: types.Message):
     chat_type=[types.ChatType.SUPERGROUP, types.ChatType.GROUP], commands=["showteam"]
 )
 async def show_team_handler(event: types.Message):
-
     pokemon = await CaughtPokemon.get_caught_pokemon(event.from_user.id, event.chat.id)
     if not len(pokemon):
         answer = f"You still haven't caught any Pokemon!"
     else:
         answer = f"{event.from_user.get_mention(as_html=True)}'s caught Pokemon:\n"
-        for p in pokemon[50]:
+        for p in pokemon[:50]:
             answer += f"{p.team_pokemon_id + 1}. {p.pokemon.name}\n"
         if len(pokemon) > 50:
-            answer = (
-                f"\nOnly your first 50 Pokemon can be shown, I'll eventually "
-                f"find a way to fix that."
+            answer += (
+                f"\n\nOnly your first 50 Pokemon can be shown, I'll find a way to fix "
+                f"that (eventually)."
             )
 
     await event.answer(
@@ -241,15 +239,13 @@ async def catch_handler(event: types.Message):
 
     if wild_encounter and pokemon_names_are_equivalent(pokemon_guess, wild_encounter):
         caught_pokemon = wild_encounters.pop(event.chat.id)
-        image = create_pokemon_image(
-            caught_pokemon.sprite_filename, wild_encounter.pokemon.name, False
-        )
+
         await CaughtPokemon.catch_pokemon(
             caught_pokemon, event.from_user.id, event.chat.id
         )
         if caught_pokemon.shiny:
             await event.answer_photo(
-                image,
+                wild_encounter.colour_image,
                 f"AWESOME! {event.from_user.get_mention(as_html=True)} caught a "
                 f"<b>shiny {wild_encounter.pokemon.name}</b>!",
                 parse_mode=types.ParseMode.HTML,
@@ -257,7 +253,7 @@ async def catch_handler(event: types.Message):
 
         else:
             await event.answer_photo(
-                image,
+                wild_encounter.colour_image,
                 f"Congratulations {event.from_user.get_mention(as_html=True)}! "
                 f"{wild_encounter.pokemon.name} was caught!",
                 parse_mode=types.ParseMode.HTML,
@@ -295,11 +291,9 @@ async def message_handler(event: types.Message):
         generations = GroupsConfiguration.get_generations(event.chat.id)
         wild_encounter = Pokemon.get_random_encounter(generations, rarity, shiny)
         wild_encounters[event.chat.id] = wild_encounter
-        image = create_pokemon_image(
-            wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
-        )
+
         await event.answer_photo(
-            image,
+            wild_encounter.silhouette_image,
             f"A wild pokemon appeared!",
         )
         logger.info(f"{wild_encounter.pokemon.name} released on group {event.chat.id}")
@@ -341,23 +335,6 @@ async def populate_database(entries):
     insert_t0 = time.time()
     CaughtPokemon.insert_many(pokemon).execute()
     logger.info(f"{entries} Pokemon inserted in {time.time() - insert_t0}s")
-
-
-async def check_performance(loops):
-    total_image_time = 0
-
-    for i in range(loops):
-        wild_encounter = Pokemon.get_random_encounter(-1001237373620)
-        t_image = time.time()
-        await create_pokemon_image(
-            wild_encounter.sprite_filename, wild_encounter.pokemon.name, True
-        )
-        total_image_time += time.time() - t_image
-
-    logger.info(
-        f"Stress test finished. {loops} images processed in {total_image_time:03}s\n"
-        f" with an average of {total_image_time/loops:04}s per image"
-    )
 
 
 if __name__ == "__main__":
