@@ -13,7 +13,7 @@ jobs:
       DOCKER_IMAGE: rllaquet/oakbot
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}  
-      DOCKER_TARGET_PLATFORMS: linux/amd64,linux/arm/v7
+      DOCKER_TARGET_PLATFORMS: linux/amd64,linux/arm/v7,linux/arm64/v8
       
     steps:    
     - name: Checkout the code       
