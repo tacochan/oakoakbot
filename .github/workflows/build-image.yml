@@ -10,10 +10,10 @@ jobs:
     runs-on: ubuntu-18.04
     env:
       DOCKER_REGISTRY: docker.io
-      DOCKER_IMAGE: rllaquet/oakbot
+      DOCKER_IMAGE: tacochan/oakbot
       DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
       DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}  
-      DOCKER_TARGET_PLATFORMS: linux/amd64,linux/arm/v7,linux/arm64/v8
+      DOCKER_TARGET_PLATFORMS: linux/amd64,linux/arm64/v8
       
     steps:    
     - name: Checkout the code       
