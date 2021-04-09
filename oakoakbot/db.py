@@ -22,7 +22,7 @@ from oakoakbot.logger import get_logger
 DEFAULT_SPAWN_RATE = 1 / 133
 NUM_GENERATIONS = 8
 
-DB_FILE = os.environ.get("DATABASE_PATH", "/db/oak_db.sqlite3")
+DB_FILE = os.environ.get("DATABASE_PATH", "db/oak_db.sqlite3")
 
 logger = get_logger()
 

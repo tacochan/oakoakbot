@@ -1,6 +1,5 @@
-import asyncio
 import argparse
-import datetime
+import asyncio
 import os
 import random
 import string
@@ -308,35 +307,6 @@ async def start():
         await bot.close()
 
 
-async def populate_database(entries):
-    pokemon = []
-    tier = list(RARITY_TIERS)[random.randint(0, 3)]
-    wild_encounter = Pokemon.get_random_encounter(list(range(1, 9)), tier)
-    date_now = datetime.datetime.now()
-    for i in range(entries):
-        pokemon.append(
-            {
-                "team": 1,
-                "team_pokemon_id": 1,
-                "pokemon": wild_encounter.pokemon.id,
-                "catch_date": date_now,
-                "shiny": wild_encounter.shiny,
-                "gender": wild_encounter.gender,
-                "ability": wild_encounter.ability,
-                "nature": wild_encounter.nature,
-                "hp_iv": 1,
-                "attack_iv": 1,
-                "defense_iv": 1,
-                "special_attack_iv": 1,
-                "special_defense_iv": 1,
-                "speed_iv": 1,
-            }
-        )
-    insert_t0 = time.time()
-    CaughtPokemon.insert_many(pokemon).execute()
-    logger.info(f"{entries} Pokemon inserted in {time.time() - insert_t0}s")
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Oakoakbot's command line.")
     parser.add_argument(
@@ -357,15 +327,13 @@ if __name__ == "__main__":
         asyncio.run(start())
     elif args.action == "init-db":
         query_t0 = time.time()
-        Pokemon.init_table_from_csv("data/pokemon.csv")
-        PokemonNatures.init_table_from_csv("data/natures.csv")
+        Pokemon.init_table_from_csv("data/pokemon_data/pokemon.csv")
+        PokemonNatures.init_table_from_csv("data/pokemon_data/natures.csv")
         logger.info(f"DB initialization finished in {time.time() - query_t0:02}s.")
     elif args.action == "validate-data":
         from scripts.data_validator import validate_data
 
         validate_data()
-    elif args.action == "check-performance":
-        asyncio.run(check_performance(100))
     elif args.action == "init-images":
         from scripts.image_preprocess import preprocess_images
 
